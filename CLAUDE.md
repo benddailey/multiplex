@@ -81,4 +81,4 @@ Always run build + test after changes.
 
 ## Release
 
-Run `./release.sh` on `main` with a clean working tree. It bumps the version in both `package.json` and `cli.tsx`, commits, tags, pushes, and creates a GitHub release. CI publishes to npm on release.
+Run `bosun` on `main` with a clean tree in sync with origin. It bumps the version in `package.json`, and in `src/cli.tsx` through the `replace` rule in `bosun.json`, then commits, tags, pushes and creates a GitHub release. CI publishes to npm on release.
