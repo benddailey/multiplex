@@ -43,6 +43,57 @@ function supportsColor(): boolean {
 }
 
 /**
+ * Whether stdin will actually enter raw mode, which is not the same question as
+ * `isTTY`. A terminal we do not own — a background process group, a pty whose
+ * other end has gone, a `/dev/tty` handed to us by a parent that kept the
+ * foreground for itself — reports itself as a TTY and then fails the ioctl with
+ * EIO. Node reports that by emitting "error" on the stream rather than throwing,
+ * so a bare try/catch never sees it and the failure surfaces as an uncaught
+ * error from inside Ink's mount. Probing once, before anything is drawn, lets a
+ * terminal that cannot do raw mode fall back to inline output like any other
+ * terminal we cannot draw in.
+ */
+function rawModeUsable(): boolean {
+    const stdin = process.stdin;
+
+    if (typeof stdin.setRawMode !== "function") {
+        return false;
+    }
+
+    // The probe's own failure has to be listened for, or it is the same
+    // uncaught "error" event we are here to avoid.
+    let emitted = false;
+    const onError = () => {
+        emitted = true;
+    };
+
+    const wasRaw = stdin.isRaw === true;
+
+    stdin.on("error", onError);
+
+    try {
+        stdin.setRawMode(true);
+
+        // `isRaw` only moves when the ioctl succeeded, so it answers both
+        // questions: whether we got raw mode, and whether there is anything to
+        // undo. The terminal goes back the way we found it either way — a
+        // failed probe means inline mode, and inline mode wants the terminal it
+        // started with, echo and Ctrl-C included.
+        const entered = !emitted && stdin.isRaw === true;
+
+        if (stdin.isRaw !== wasRaw) {
+            stdin.setRawMode(wasRaw);
+        }
+
+        return entered;
+    } catch {
+        return false;
+    } finally {
+        stdin.removeListener("error", onError);
+    }
+}
+
+/**
  * Installs the teardown that has to survive a signal. `process.on("exit")` does
  * not run when we are killed by one, and the children sit in their own process
  * groups so they never see the terminal's own SIGHUP — without these, closing
@@ -84,8 +135,9 @@ function installTeardown(shutdown: () => Promise<void>, onExit: () => void) {
  *
  * Renders the TUI when the terminal can support it and falls back to inline
  * output — every line printed as it arrives, no alternate screen, no input —
- * when it cannot, so a pipe, a CI job or a window too small to draw a layout in
- * gets usable output rather than an error.
+ * when it cannot, so a pipe, a CI job, a window too small to draw a layout in or
+ * a terminal that will not give us raw mode gets usable output rather than an
+ * error.
  */
 export async function multiplex(options: MultiplexOptions): Promise<number> {
     const commandDefs = normalizeCommands(options.commands ?? []);
@@ -97,10 +149,15 @@ export async function multiplex(options: MultiplexOptions): Promise<number> {
     const timestamps = options.timestamps ?? false;
     const title = options.title ? sanitizeTitle(options.title) : undefined;
     const json = options.json ?? false;
-    const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+    // Nothing below has to be answered for a run that was never going to draw a
+    // TUI, and `rawModeUsable` is the one that costs a terminal side effect.
+    const wantsTui = !json && !(options.inline ?? false);
+    const hasTty = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+    const noRawMode = wantsTui && hasTty && !rawModeUsable();
+    const interactive = hasTty && !noRawMode;
     const columns = process.stdout.columns ?? 0;
     const rows = process.stdout.rows ?? 0;
-    const tooSmall = interactive && !fitsTui(columns, rows);
+    const tooSmall = wantsTui && interactive && !fitsTui(columns, rows);
     const inline =
         json || (options.inline ?? false) || !interactive || tooSmall;
 
@@ -164,10 +221,15 @@ export async function multiplex(options: MultiplexOptions): Promise<number> {
         });
 
         // Without a TTY inline mode is the expected outcome and needs no
-        // explanation; in a real terminal the missing TUI does.
-        if (tooSmall && !json) {
-            const notice = `Terminal is ${columns}x${rows}; the TUI needs at least ${MIN_COLUMNS}x${MIN_ROWS}. Running inline.`;
+        // explanation, and neither does one that was asked for; in a real
+        // terminal the missing TUI does.
+        const notice = tooSmall
+            ? `Terminal is ${columns}x${rows}; the TUI needs at least ${MIN_COLUMNS}x${MIN_ROWS}. Running inline.`
+            : noRawMode
+              ? "Terminal will not enter raw mode, so the TUI has no keyboard input. Running inline."
+              : undefined;
 
+        if (notice) {
             process.stderr.write(`${color ? systemMsg(notice) : notice}\n`);
         }
 
@@ -289,6 +351,16 @@ export async function multiplex(options: MultiplexOptions): Promise<number> {
             restoreTerminal();
         });
 
+        // Ink toggles raw mode on mount and again on unmount, and a stdin that
+        // stops working in between reports it by emitting "error" rather than
+        // throwing. Unhandled, that ends the process where it stands — mid-frame
+        // or mid-shutdown, with the alternate screen still up and the children
+        // still running. There is nothing useful to do about input that has gone
+        // away while the TUI is up, so absorb it and let the teardown finish.
+        const ignoreStdinError = () => {};
+
+        process.stdin.on("error", ignoreStdinError);
+
         if (title) {
             process.stdout.write(`\x1b[22;0t\x1b]0;${title}\x07`);
 
@@ -324,6 +396,8 @@ export async function multiplex(options: MultiplexOptions): Promise<number> {
 
             return 1;
         } finally {
+            process.stdin.removeListener("error", ignoreStdinError);
+
             uninstall();
         }
     }
