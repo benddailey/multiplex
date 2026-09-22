@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.4.4 - 2026-09-22
+
+### What's Changed
+
+* Bump the npm group with 2 updates by [@dependabot](https://github.com/dependabot)[bot] in https://github.com/laravel/multiplex/pull/18
+* Brighten footer keybinding colors on dark terminals by [@oliinykdm](https://github.com/oliinykdm) in https://github.com/laravel/multiplex/pull/19
+* Bump the npm group with 3 updates by [@dependabot](https://github.com/dependabot)[bot] in https://github.com/laravel/multiplex/pull/21
+* Bump pnpm/action-setup from 6.0.10 to 6.1.0 in the github-actions group by [@dependabot](https://github.com/dependabot)[bot] in https://github.com/laravel/multiplex/pull/22
+* Bump the npm group with 3 updates by [@dependabot](https://github.com/dependabot)[bot] in https://github.com/laravel/multiplex/pull/23
+* Bump the npm group with 2 updates by [@dependabot](https://github.com/dependabot)[bot] in https://github.com/laravel/multiplex/pull/26
+* Bump the npm group with 4 updates by [@dependabot](https://github.com/dependabot)[bot] in https://github.com/laravel/multiplex/pull/28
+* Fall back to inline mode when the terminal refuses raw mode by [@adrum](https://github.com/adrum) in https://github.com/laravel/multiplex/pull/27
+* Switch release method to Bosun by [@joetannenbaum](https://github.com/joetannenbaum) in https://github.com/laravel/multiplex/pull/29
+
+### New Contributors
+
+* [@oliinykdm](https://github.com/oliinykdm) made their first contribution in https://github.com/laravel/multiplex/pull/19
+* [@adrum](https://github.com/adrum) made their first contribution in https://github.com/laravel/multiplex/pull/27
+
+**Full Changelog**: https://github.com/laravel/multiplex/compare/v0.4.3...v0.4.4
+
 ## v0.4.3 - 2026-08-18
 
 ### What's Changed
