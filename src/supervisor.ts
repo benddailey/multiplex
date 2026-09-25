@@ -28,8 +28,9 @@ export const EXIT_DRAIN_GRACE_MS = 500;
  * Anything with cleanup to do — a dev server unlinking its hot file, a watcher
  * releasing a lock — does it in a handler that SIGKILL never reaches, so
  * shutting down without this leaves the working tree in a state the next
- * command has to be told to ignore. The wait ends the moment the last child is
- * gone, so this ceiling is only ever paid by something that ignores SIGTERM.
+ * command has to be told to ignore. The wait ends the moment the last process
+ * in each group is gone, so this ceiling is only ever paid by something that
+ * ignores SIGTERM.
  */
 export const TERMINATE_GRACE_MS = 2000;
 
@@ -52,6 +53,39 @@ function settle(promises: Promise<void>[], ms: number): Promise<void> {
             clearTimeout(timer);
             resolve();
         });
+    });
+}
+
+/** How often to check whether a process group has emptied during shutdown. */
+const GROUP_POLL_MS = 25;
+
+/**
+ * Resolves once no member of the process group is left.
+ *
+ * The child we spawned is `sh`, and behind `npm run dev` or `composer run`
+ * its descendants are wrappers that exit on SIGTERM at once while the dev
+ * server underneath is still in its cleanup handler. Waiting on the child's
+ * `exit` would end the grace period there and SIGKILL the server mid-cleanup,
+ * so this polls the group instead. EPERM still means someone is there, and
+ * the timer is unref'd so a process that never dies cannot hold the host open.
+ */
+function groupEmptied(pid: number): Promise<void> {
+    return new Promise((resolve) => {
+        const check = () => {
+            try {
+                process.kill(-pid, 0);
+            } catch (error) {
+                if ((error as NodeJS.ErrnoException).code === "ESRCH") {
+                    resolve();
+
+                    return;
+                }
+            }
+
+            setTimeout(check, GROUP_POLL_MS).unref();
+        };
+
+        check();
     });
 }
 
@@ -520,12 +554,7 @@ export function createSupervisor({
                     proc.exitCode === null &&
                     proc.signalCode === null,
             )
-            .map(
-                (proc) =>
-                    new Promise<void>((resolve) => {
-                        proc.once("exit", () => resolve());
-                    }),
-            );
+            .map((proc) => groupEmptied(proc.pid as number));
 
         signalAll("SIGTERM", true);
 
