@@ -56,19 +56,9 @@ function settle(promises: Promise<void>[], ms: number): Promise<void> {
     });
 }
 
-/** How often to check whether a process group has emptied during shutdown. */
 const GROUP_POLL_MS = 25;
 
-/**
- * Resolves once no member of the process group is left.
- *
- * The child we spawned is `sh`, and behind `npm run dev` or `composer run`
- * its descendants are wrappers that exit on SIGTERM at once while the dev
- * server underneath is still in its cleanup handler. Waiting on the child's
- * `exit` would end the grace period there and SIGKILL the server mid-cleanup,
- * so this polls the group instead. EPERM still means someone is there, and
- * the timer is unref'd so a process that never dies cannot hold the host open.
- */
+/** Resolves once the whole group is gone; wrappers like `npm run` exit before the server they started. */
 function groupEmptied(pid: number): Promise<void> {
     return new Promise((resolve) => {
         const check = () => {

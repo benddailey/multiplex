@@ -309,9 +309,7 @@ describe("supervisor.terminate", () => {
         }
     });
 
-    // `npm run dev` and friends: the wrapper we spawned dies on SIGTERM straight
-    // away, while the dev server underneath is still in its cleanup handler.
-    // The grace period has to cover the group, not just the wrapper.
+    // Wrappers like `npm run` exit on SIGTERM before the server under them has cleaned up.
     it("waits for a wrapped command's cleanup, not just the wrapper", async () => {
         const dir = mkdtempSync(join(tmpdir(), "multiplex-"));
         const marker = join(dir, "hot");
